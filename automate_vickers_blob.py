@@ -12,7 +12,7 @@ import pycuda.driver as drv
 import numpy
 import matplotlib.pyplot as plt
 from pycuda.compiler import SourceModule
-import time
+import time as TIME
 import csv
 import os
 
@@ -92,20 +92,23 @@ eps = .01
 
 
 #   different diffusion ratios
-dif_1 = numpy.linspace(1,20,20)
-dif_2 = numpy.linspace(20,1,20)
+#dif_1 = numpy.linspace(1,20,20)
+#dif_2 = numpy.linspace(20,1,20)
 
+
+dif_1 = [2 ,  4 , 5 , 7 , 8,  9 , 10 , 11, 12, 13, 14, 15]
+dif_2 = [19, 17, 16 ,14, 13, 12 , 11 , 10,  9,  8,  7,  6]
 
 
 #   attempt threshold
-attempt_thresh = 21
+attempt_thresh = 15
 
 #   starting interval for alpha's
-a_low = .4
-a_high = 3.9
+a_low = .2
+a_high = 5
 
 #   testing different initial circles
-blobsizes = numpy.linspace(23,30,8)
+blobsizes = numpy.linspace(25,30,6)
 
 
 #   store all the aggregate data
@@ -145,8 +148,8 @@ try:
                 #    handles strange cases in which convergence would always take place before 60 iterations
                 #    might be caused by some 'acceleration' of dominance due to diffusion rates
                 if attempts == attempt_thresh: 
-                    data.append([eps, alpha, d, pop, mu1, mu2, mu1/mu2, blob, 3, time,1])
-                    bdata.append([eps, alpha, d, pop, mu1, mu2, mu1/mu2, blob, 3, time,1])
+                    data.append([eps, alpha, pop, mu1, mu2, mu1/mu2, blob, 3, time])
+                    bdata.append([eps, alpha, pop, mu1, mu2, mu1/mu2, blob, 3, time])
                     break
                 
                 s1_freq = numpy.zeros(length).astype(numpy.float64)
@@ -163,12 +166,16 @@ try:
                         s1_freq[i] = 0
                         s2_freq[i] = pop
 
-                
+                picture = s1_freq/(s1_freq + s2_freq)                
                 time = 0
-                
+                sync_inc = 0
+                sync_dec = 0
                 while 1:
-                    picture = numpy.zeros(length)
                     
+                    start = TIME.time()
+                    
+                    before_a = picture[middle + 7]
+                    before_b = picture[middle + 128]
                     for count in range(1000):
                         fitness(drv.InOut(s1_freq), drv.InOut(s2_freq), numpy.float64(eps), numpy.float64(alpha),
                             numpy.float64(b), numpy.float64(c), numpy.float64(d),
@@ -186,53 +193,69 @@ try:
                         s2_freq = dest2.copy()
                     
                     time += 1
+                    end = TIME.time()
                     
                     #   a check to ensure that everything runs smoothly
-                    print(time, picture[middle+blob/2], picture[middle+ blob + blob/2],blob, mu1/mu2, attempts)
                     
-                    #   a stricter condition for wave direction than previously to give leeway for turning points
-                    if picture[middle + blob/2] < 0.4:
-                        data.append([eps, alpha, d, pop, mu1, mu2, mu1/mu2, blob, 2, time,0])
-                        bdata.append([eps, alpha, d, pop, mu1, mu2, mu1/mu2, blob, 2, time,0])
-                        lo = alpha
-                        break
-                    if picture[middle + blob + blob/2] > 0.6:
-                        data.append([eps, alpha, d, pop, mu1, mu2, mu1/mu2, blob, 1, time,0])
-                        bdata.append([eps, alpha, d, pop, mu1, mu2, mu1/mu2, blob, 1, time,0])
+                    
+                    
+                    after_a = picture[middle + 7]
+                    after_b = picture[middle + 128]
+                    print(after_a - before_a, after_b - before_b, blob, mu1, attempts, time)
+                    
+                    if after_a >= before_a and after_b >= before_b:
+                        sync_inc += 1
+                        sync_dec = 0
+                    elif after_a <= before_a and after_b <= before_b:
+                        sync_dec += 1
+                        sync_inc = 0
+                    elif after_a > before_a and after_b < before_b:
+                        sync_inc = 0
+                        sync_dec = 0
+                    else:
+                        sync_inc = 0
+                        sync_dec = 0
+                    
+                    
+                    if sync_inc == 25 or after_b > 0.5:
+                        data.append([eps, alpha, pop, mu1, mu2, mu1/mu2, blob, 1, time])
                         hi = alpha
                         break
                     
-                    if time == 60:
-                        data.append([eps, alpha, d, pop, mu1, mu2, mu1/mu2, blob, 3, time,0])
-                        bdata.append([eps, alpha, d, pop, mu1, mu2, mu1/mu2, blob, 3, time,0])
-                        nextmu = True
+                    if sync_dec == 25 or picture[middle] < 0.5:
+                        data.append([eps, alpha, pop, mu1, mu2, mu1/mu2, blob, 2, time])
+                        lo = alpha
                         break
+                        
+                        
+                    
+                    
 
         #   saves a text file specific to the blob size
     
-        cwd = os.getcwd()
-        filename = "vickers2D_blob"+str(blob)+".txt"
-
-        filepath = cwd + "/" + filename
-
-
-        if not os.path.isfile(filepath):
-            f = open(filename,'w+')
-            f.write("epsilon, alpha, beta, pop, dif1, dif2, difratio, blobsize, winner, time, converged"  + "\n")
-            for i in range(len(bdata)):
-                temp = bdata[i][0], bdata[i][1], bdata[i][2], bdata[i][3],bdata[i][4],bdata[i][5],bdata[i][6],bdata[i][7], bdata[i][8], bdata[i][9],bdata[i][10]
-                temp2= str(temp)
-                text = temp2[1:-1]
-                f.write( str(text)[1:len(str(bdata))-1] + "\n")
-        else:
-            f = open(filename, 'a+')
-            for i in range(len(bdata)):
-                temp = bdata[i][0], bdata[i][1], bdata[i][2], bdata[i][3],bdata[i][4],bdata[i][5],bdata[i][6],bdata[i][7], bdata[i][8], bdata[i][9],bdata[i][10]
-                temp2= str(temp)
-                text = temp2[1:-1]
-                f.write( str(text)[1:len(str(bdata))-1] + "\n")
-
-        f.close()
+#        cwd = os.getcwd()
+#        filename = "vickers2D_blob"+str(blob)+"_3.txt"
+#
+#        filepath = cwd + "/" + filename
+#
+#
+#        if not os.path.isfile(filepath):
+#            f = open(filename,'w+')
+#            f.write("epsilon, alpha, beta, pop, dif1, dif2, difratio, blobsize, winner, time, converged"  + "\n")
+#            for i in range(len(bdata)):
+#                temp = bdata[i][0], bdata[i][1], bdata[i][2], bdata[i][3],bdata[i][4],bdata[i][5],bdata[i][6],bdata[i][7], bdata[i][8], bdata[i][9],bdata[i][10]
+#                temp2= str(temp)
+#                text = temp2[1:-1]
+#                f.write( str(text)[1:len(str(bdata))-1] + "\n")
+#        else:
+#            f = open(filename, 'a+')
+#            for i in range(len(bdata)):
+#                temp = bdata[i][0], bdata[i][1], bdata[i][2], bdata[i][3],bdata[i][4],bdata[i][5],bdata[i][6],bdata[i][7], bdata[i][8], bdata[i][9],bdata[i][10]
+#                temp2= str(temp)
+#                text = temp2[1:-1]
+#                f.write( str(text)[1:len(str(bdata))-1] + "\n")
+#
+#        f.close()
 
 
 
@@ -244,23 +267,23 @@ try:
 #   saves a text file with parameters
 finally:
     cwd = os.getcwd()
-    filename = "vickers2D_blob2.txt"
+    filename = "vickers2D_blob1-3.txt"
 
     filepath = cwd + "/" + filename
 
 
     if not os.path.isfile(filepath):
         f = open(filename,'w+')
-        f.write("epsilon, alpha, beta, pop, dif1, dif2, difratio, blobsize, winner, time, converged"  + "\n")
+        f.write("epsilon, alpha, pop, dif1, dif2, difratio, blobsize, winner, time"  + "\n")
         for i in range(len(data)):
-            temp = data[i][0],data[i][1],data[i][2],data[i][3],data[i][4],data[i][5],data[i][6],data[i][7], data[i][8], data[i][9], data[i][10]
+            temp = data[i][0],data[i][1],data[i][2],data[i][3],data[i][4],data[i][5],data[i][6],data[i][7], data[i][8]
             temp2= str(temp)
             text = temp2[1:-1]
             f.write( str(text)[1:len(str(data))-1] + "\n")
     else:
         f = open(filename, 'a+')
         for i in range(len(data)):
-            temp = data[i][0],data[i][1],data[i][2],data[i][3],data[i][4],data[i][5],data[i][6],data[i][7],data[i][8], data[i][9], data[i][10]
+            temp = data[i][0],data[i][1],data[i][2],data[i][3],data[i][4],data[i][5],data[i][6],data[i][7],data[i][8]
             temp2= str(temp)
             text = temp2[1:-1]
             f.write( str(text)[1:len(str(data))-1] + "\n")
